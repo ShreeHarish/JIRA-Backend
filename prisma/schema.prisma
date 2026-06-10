@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  displayName   String
+  avatar        String?
+  assignedIssues Issue[]       @relation("Assignee")
+  reportedIssues Issue[]       @relation("Reporter")
+  comments      Comment[]
+  activityLogs  ActivityLog[]
+  notifications Notification[]
+  watchedIssues Watcher[]
+  projectsLead  Project[]      @relation("ProjectLead")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  name         String
+  key          String        @unique
+  description  String?
+  leadId       String
+  lead         User          @relation("ProjectLead", fields: [leadId], references: [id])
+  issues       Issue[]
+  sprints      Sprint[]
+  workflow     Json          // Configurable status columns and transition rules
+  customFields CustomField[]
+  activityLogs ActivityLog[]
+  issueCounter IssueCounter?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+enum IssueType {
+  EPIC
+  STORY
+  TASK
+  BUG
+  SUB_TASK
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Issue {
+  id           String        @id @default(uuid())
+  issueKey     String        @unique // e.g., PROJ-123
+  projectId    String
+  project      Project       @relation(fields: [projectId], references: [id])
+  type         IssueType
+  title        String
+  description  String?
+  status       String        // Managed by project workflow
+  priority     IssuePriority @default(MEDIUM)
+  assigneeId   String?
+  assignee     User?         @relation("Assignee", fields: [assigneeId], references: [id])
+  reporterId   String
+  reporter     User          @relation("Reporter", fields: [reporterId], references: [id])
+  sprintId     String?
+  sprint       Sprint?       @relation(fields: [sprintId], references: [id])
+  storyPoints  Int?
+  parentId     String?
+  parent       Issue?        @relation("IssueHierarchy", fields: [parentId], references: [id])
+  subtasks     Issue[]       @relation("IssueHierarchy")
+  labels       String[]
+  comments     Comment[]
+  watchers     Watcher[]
+  customValues CustomFieldValue[]
+  activityLogs ActivityLog[]
+  version      Int           @default(1)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([projectId])
+  @@index([sprintId])
+  @@index([assigneeId])
+}
+
+enum SprintStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+model Sprint {
+  id         String       @id @default(uuid())
+  name       String
+  projectId  String
+  project    Project      @relation(fields: [projectId], references: [id])
+  startDate  DateTime?
+  endDate    DateTime?
+  status     SprintStatus @default(PLANNED)
+  issues     Issue[]
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([projectId])
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  issueId   String
+  issue     Issue     @relation(fields: [issueId], references: [id])
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id])
+  content   String
+  parentId  String?
+  parent    Comment?  @relation("ThreadedComments", fields: [parentId], references: [id])
+  replies   Comment[] @relation("ThreadedComments")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([issueId])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  issueId   String?
+  issue     Issue?   @relation(fields: [issueId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String   // e.g., "ISSUE_CREATED", "STATUS_CHANGED"
+  changes   Json?    // Stores before/after for audit trail
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([issueId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  content   String
+  isRead    Boolean  @default(false)
+  link      String?  // Link to issue or comment
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model CustomField {
+  id        String             @id @default(uuid())
+  projectId String
+  project   Project            @relation(fields: [projectId], references: [id])
+  name      String
+  type      String             // TEXT, NUMBER, DROPDOWN, DATE
+  options   Json?              // For DROPDOWN type
+  values    CustomFieldValue[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([projectId])
+}
+
+model CustomFieldValue {
+  id      String      @id @default(uuid())
+  issueId String
+  issue   Issue       @relation(fields: [issueId], references: [id])
+  fieldId String
+  field   CustomField @relation(fields: [fieldId], references: [id])
+  value   String      // Stored as string, casted based on field type
+}
+
+model Watcher {
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id])
+
+  @@id([userId, issueId])
+}
+
+model ProjectCounter {
+  id        Int      @id @default(1)
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model IssueCounter {
+  projectId String  @id
+  project   Project @relation(fields: [projectId], references: [id])
+  lastValue Int     @default(0)
+  updatedAt DateTime @updatedAt
+}
